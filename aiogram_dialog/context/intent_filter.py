@@ -6,7 +6,7 @@ from aiogram.dispatcher.fsm.state import StatesGroup
 from aiogram.dispatcher.fsm.storage.base import BaseStorage
 from aiogram.dispatcher.middlewares.base import BaseMiddleware
 from aiogram.types import (
-    Message, CallbackQuery, Update, TelegramObject, ChatMemberUpdated,
+    Message, CallbackQuery, Update, TelegramObject,
 )
 
 from .context import Context
@@ -67,6 +67,7 @@ class IntentMiddlewareFactory:
             "stack: `%s`, user: `%s`, chat: `%s`",
             intent_id, stack_id, event.from_user.id, proxy.chat_id,
         )
+        context, stack = None, None
         if intent_id is not None:
             context = await proxy.load_context(intent_id)
             stack = await proxy.load_stack(context.stack_id)
@@ -89,12 +90,13 @@ class IntentMiddlewareFactory:
                     )
                 context = await proxy.load_context(stack.last_intent_id())
         else:
-            raise InvalidStackIdError(
-                f"Both stack id and intent id are None: {event}",
-            )
+            if isinstance(event, DialogUpdateEvent):
+                raise InvalidStackIdError(
+                    f"Both stack id and intent id are None: {event}",
+                )
         data[STORAGE_KEY] = proxy
-        data[STACK_KEY] = stack
-        data[CONTEXT_KEY] = context
+        data[STACK_KEY] = stack if stack else None
+        data[CONTEXT_KEY] = context if context else None
 
     async def process_message(
             self, handler: Callable, event: Message, data: dict,
