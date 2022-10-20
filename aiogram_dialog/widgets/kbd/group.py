@@ -3,8 +3,7 @@ from typing import List, Dict, Optional, Iterable
 
 from aiogram.types import InlineKeyboardButton, CallbackQuery
 
-from aiogram_dialog.dialog import Dialog
-from aiogram_dialog.manager.manager import DialogManager
+from aiogram_dialog.manager.manager import DialogManager, ManagedDialogProto
 from .base import Keyboard
 from ..when import WhenCondition
 
@@ -27,7 +26,7 @@ class Group(Keyboard):
         return None
 
     async def _render_keyboard(
-            self, data: Dict, manager: DialogManager
+            self, data: Dict, manager: DialogManager,
     ) -> List[List[InlineKeyboardButton]]:
         kbd: List[List[InlineKeyboardButton]] = []
         for b in self.buttons:
@@ -56,8 +55,10 @@ class Group(Keyboard):
             res.append(row)
         return res
 
-    async def process_callback(self, c: CallbackQuery, dialog: Dialog,
-                               manager: DialogManager) -> bool:
+    async def _process_other_callback(
+            self, c: CallbackQuery, dialog: ManagedDialogProto,
+            manager: DialogManager,
+    ) -> bool:
         for b in self.buttons:
             if await b.process_callback(c, dialog, manager):
                 return True

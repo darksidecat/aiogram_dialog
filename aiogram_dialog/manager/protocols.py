@@ -9,14 +9,10 @@ from aiogram.types import (
 )
 
 from ..context.context import Context
-from ..context.events import StartMode, ChatEvent, Data, DialogUpdate
+from ..context.events import (
+    DialogUpdateEvent, StartMode, ChatEvent, Data, ShowMode, DialogUpdate,
+)
 from ..context.stack import Stack
-
-
-class ShowMode(Enum):
-    AUTO = "auto"
-    EDIT = "edit"
-    SEND = "send"
 
 
 class LaunchMode(Enum):
@@ -203,6 +199,7 @@ class BaseDialogManager(Protocol):
             state: State,
             data: Data = None,
             mode: StartMode = StartMode.NORMAL,
+            show_mode: ShowMode = ShowMode.AUTO,
     ) -> None:
         pass
 
@@ -246,6 +243,16 @@ class DialogManager(BaseDialogManager):
         raise NotImplementedError
 
     async def reset_stack(self, remove_keyboard: bool = True) -> None:
+        raise NotImplementedError
+
+    async def load_data(self) -> Dict:
+        raise NotImplementedError
+
+
+class DialogManagerFactory(Protocol):
+    def __call__(
+            self, event: ChatEvent, registry: DialogRegistryProto, data: Dict,
+    ) -> DialogManager:
         raise NotImplementedError
 
 

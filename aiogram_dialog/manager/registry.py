@@ -8,10 +8,11 @@ from aiogram.dispatcher.filters import Command
 from aiogram.dispatcher.fsm.state import State, StatesGroup, any_state
 from aiogram.types import User, Chat, Message
 
+from .manager import ManagerImpl
 from .manager_middleware import ManagerMiddleware
 from .protocols import (
     ManagedDialogProto, DialogRegistryProto, DialogManager,
-    MediaIdStorageProtocol, MessageManagerProtocol,
+    MediaIdStorageProtocol, MessageManagerProtocol, DialogManagerFactory,
 )
 from .update_handler import handle_update
 from ..context.events import StartMode, DIALOG_EVENT_NAME, DialogUpdate
@@ -35,10 +36,15 @@ class DialogRegistry(DialogRegistryProto):
             dialogs: Sequence[ManagedDialogProto] = (),
             media_id_storage: Optional[MediaIdStorageProtocol] = None,
             message_manager: Optional[MessageManagerProtocol] = None,
+            dialog_manager_factory: DialogManagerFactory = ManagerImpl,
+            default_router: Optional[Router] = None,
     ):
         self.dp = dp
         self.update_handler = self.dp.observers[DIALOG_EVENT_NAME] = DialogEventObserver(
             router=self.dp, event_name=DIALOG_EVENT_NAME
+        )
+        self.default_router = default_router if default_router else dp.include_router(
+            Router(name="aiogram_dialog_router")
         )
 
         self.dialogs = {
@@ -49,13 +55,14 @@ class DialogRegistry(DialogRegistryProto):
         }
         self.register_update_handler(handle_update, any_state)
 
-        self._register_middleware()
         if media_id_storage is None:
             media_id_storage = MediaIdStorage()
         self._media_id_storage = media_id_storage
         if message_manager is None:
             message_manager = MessageManager()
         self._message_manager = message_manager
+        self.dialog_manager_factory = dialog_manager_factory
+        self._register_middleware()
 
     @property
     def media_id_storage(self) -> MediaIdStorageProtocol:
@@ -73,7 +80,7 @@ class DialogRegistry(DialogRegistryProto):
         self.state_groups[dialog.states_group_name()] = group
         dialog.register(
             self,
-            router if router else self.dp,
+            router if router else self.default_router,
             IntentFilter(aiogd_intent_state_group=group),
             *args,
             **kwargs
@@ -86,7 +93,9 @@ class DialogRegistry(DialogRegistryProto):
         self.dp.message.register(start_dialog, Command(commands="start"), any_state)
 
     def _register_middleware(self):
-        manager_middleware = ManagerMiddleware(self)
+        manager_middleware = ManagerMiddleware(
+            self, self.dialog_manager_factory,
+        )
         intent_middleware = IntentMiddlewareFactory(
             storage=self.dp.fsm.storage, state_groups=self.state_groups
         )

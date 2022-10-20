@@ -5,8 +5,7 @@ from typing import Callable, Optional, Union, Dict, Any, List, Awaitable, Sequen
 from aiogram.types import CallbackQuery, InlineKeyboardButton
 
 from aiogram_dialog.context.events import ChatEvent
-from aiogram_dialog.dialog import Dialog
-from aiogram_dialog.manager.manager import DialogManager
+from aiogram_dialog.manager.manager import DialogManager, ManagedDialogProto
 from aiogram_dialog.widgets.text import Text, Case
 from aiogram_dialog.widgets.widget_event import (
     WidgetEventProcessor, ensure_event_processor,
@@ -43,17 +42,16 @@ class Select(Keyboard):
                  when: Union[str, Callable] = None):
         super().__init__(id, when)
         self.text = text
-        self.widget_id = id
         self.on_click = ensure_event_processor(on_click)
-        self.callback_data_prefix = id + ":"
         self.item_id_getter = item_id_getter
         if isinstance(items, str):
             self.items_getter = itemgetter(items)
         else:
             self.items_getter = get_identity(items)
 
-    async def _render_keyboard(self, data: Dict,
-                               manager: DialogManager) -> List[List[InlineKeyboardButton]]:
+    async def _render_keyboard(
+            self, data: Dict, manager: DialogManager,
+    ) -> List[List[InlineKeyboardButton]]:
         return [[
             await self._render_button(pos, item, data, manager)
             for pos, item in enumerate(self.items_getter(data))
@@ -62,17 +60,19 @@ class Select(Keyboard):
     async def _render_button(self, pos: int, item: Any, data: Dict,
                              manager: DialogManager) -> InlineKeyboardButton:
         data = {"data": data, "item": item, "pos": pos + 1, "pos0": pos}
+        item_id = self.item_id_getter(item)
         return InlineKeyboardButton(
             text=await self.text.render_text(data, manager),
-            callback_data=self.callback_data_prefix + str(self.item_id_getter(item))
+            callback_data=self._item_callback_data(item_id)
         )
 
-    async def process_callback(self, c: CallbackQuery, dialog: Dialog,
-                               manager: DialogManager) -> bool:
-        if not c.data.startswith(self.callback_data_prefix):
-            return False
-        item_id = c.data[len(self.callback_data_prefix):]
-        await self.on_click.process_event(c, self.managed(manager), manager, item_id)
+    async def _process_item_callback(
+            self, c: CallbackQuery, data: str, dialog: ManagedDialogProto,
+            manager: DialogManager,
+    ) -> bool:
+        await self.on_click.process_event(
+            c, self.managed(manager), manager, data,
+        )
         return True
 
 
@@ -115,11 +115,11 @@ class StatefulSelect(Select, ABC):
 
 class Radio(StatefulSelect):
     def get_checked(self, manager: DialogManager) -> Optional[str]:
-        return manager.current_context().widget_data.get(self.widget_id, None)
+        return self.get_widget_data(manager, None)
 
     async def set_checked(self, event: ChatEvent, item_id: Optional[str], manager: DialogManager):
         checked = self.get_checked(manager)
-        manager.current_context().widget_data[self.widget_id] = item_id
+        self.set_widget_data(manager, item_id)
         if checked != item_id:
             await self._process_on_state_changed(event, item_id, manager)
 
@@ -127,8 +127,7 @@ class Radio(StatefulSelect):
         return str(item_id) == self.get_checked(manager)
 
     def _preview_checked_id(self, manager: DialogManager, item_id: str) -> str:
-        data = manager.current_context().widget_data
-        return data.setdefault(self.widget_id, item_id)
+        return self.get_widget_data(manager, item_id)
 
     def _is_text_checked(self, data: Dict, case: Case, manager: DialogManager) -> bool:
         item_id = str(self.item_id_getter(data["item"]))
@@ -184,10 +183,10 @@ class Multiselect(StatefulSelect):
         return str(item_id) in data
 
     def get_checked(self, manager: DialogManager) -> List[str]:
-        return manager.current_context().widget_data.get(self.widget_id, [])
+        return self.get_widget_data(manager, [])
 
     async def reset_checked(self, event: ChatEvent, manager: DialogManager):
-        manager.current_context().widget_data[self.widget_id] = []
+        self.set_widget_data(manager, [])
 
     async def set_checked(self, event: ChatEvent,
                           item_id: str, checked: bool, manager: DialogManager) -> None:
@@ -204,7 +203,7 @@ class Multiselect(StatefulSelect):
                     data.append(item_id)
                     changed = True
         if changed:
-            manager.current_context().widget_data[self.widget_id] = data
+            self.set_widget_data(manager, data)
             await self._process_on_state_changed(event, item_id, manager)
 
     async def _on_click(self, c: CallbackQuery, select: Select,
